@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# skillctl — Unified AI coding tool skill manager
+# Manages a canonical ~/.skills/ directory and federates symlinks
+# to all AI tool skill directories (~/.claude/skills, ~/.codex/skills, etc.)
+
+VERSION="0.1.0"
+SKILLS_ROOT="${SKILLS_ROOT:-$HOME/.skills}"
+REGISTRY_FILE="$SKILLS_ROOT/.registry.json"
+
+# Source library modules
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LIB_DIR="${SCRIPT_DIR}/../lib"
+
+source "$LIB_DIR/config.sh"
+source "$LIB_DIR/utils.sh"
+source "$LIB_DIR/registry.sh"
+source "$LIB_DIR/sync.sh"
+source "$LIB_DIR/manage.sh"
+
+# ─── Main CLI ───────────────────────────────────────────────────────────
+
+usage() {
+    cat <<'EOF'
+skillctl — Unified AI skill directory manager
+
+Usage:
+  skillctl <command> [options]
+
+Commands:
+  init          Initialize ~/.skills/ directory structure
+  migrate       Migrate skills from scattered tool directories into ~/.skills/
+  sync          Rebuild all/ index and tool directory symlinks
+  status        Health check: counts, broken links, drift
+  list          List all skills with category and source
+  add <path>    Add a skill directory to user/ and sync
+  remove <name> Remove a skill and clean all links
+  doctor        Fix broken links, normalize names
+  version       Show version
+
+Options:
+  --quiet, -q   Suppress non-error output
+  --dry-run     Show what would be done without doing it
+  --help, -h    Show this help
+
+Environment:
+  SKILLS_ROOT   Override canonical directory (default: ~/.skills)
+EOF
+}
+
+# Parse global options
+QUIET=false
+DRY_RUN=false
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --quiet|-q) QUIET=true; shift ;;
+        --dry-run) DRY_RUN=true; shift ;;
+        --help|-h) usage; exit 0 ;;
+        --version) echo "skillctl $VERSION"; exit 0 ;;
+        -*) echo "Unknown option: $1" >&2; usage; exit 1 ;;
+        *) break ;;
+    esac
+done
+
+COMMAND="${1:-}"
+shift || true
+
+case "$COMMAND" in
+    init)       cmd_init "$@" ;;
+    migrate)    cmd_migrate "$@" ;;
+    sync)       cmd_sync "$@" ;;
+    status)     cmd_status "$@" ;;
+    list)       cmd_list "$@" ;;
+    add)        cmd_add "$@" ;;
+    remove)     cmd_remove "$@" ;;
+    doctor)     cmd_doctor "$@" ;;
+    version)    echo "skillctl $VERSION" ;;
+    "")         usage; exit 0 ;;
+    *)          echo "Unknown command: $COMMAND" >&2; usage; exit 1 ;;
+esac
