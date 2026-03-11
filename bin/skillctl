@@ -18,6 +18,7 @@ source "$LIB_DIR/utils.sh"
 source "$LIB_DIR/registry.sh"
 source "$LIB_DIR/sync.sh"
 source "$LIB_DIR/manage.sh"
+source "$LIB_DIR/tui.sh"
 
 # ─── Main CLI ───────────────────────────────────────────────────────────
 
@@ -29,6 +30,7 @@ Usage:
   skillctl <command> [options]
 
 Commands:
+  manage        Interactive skill browser and manager (fzf TUI)
   init          Initialize ~/.skills/ directory structure
   migrate       Migrate skills from scattered tool directories into ~/.skills/
   sync          Rebuild all/ index and tool directory symlinks
@@ -67,6 +69,7 @@ COMMAND="${1:-}"
 shift || true
 
 case "$COMMAND" in
+    manage)     cmd_manage "$@" ;;
     init)       cmd_init "$@" ;;
     migrate)    cmd_migrate "$@" ;;
     sync)       cmd_sync "$@" ;;
@@ -76,6 +79,6 @@ case "$COMMAND" in
     remove)     cmd_remove "$@" ;;
     doctor)     cmd_doctor "$@" ;;
     version)    echo "skillctl $VERSION" ;;
-    "")         usage; exit 0 ;;
+    "")         cmd_manage "$@" ;;
     *)          echo "Unknown command: $COMMAND" >&2; usage; exit 1 ;;
 esac
