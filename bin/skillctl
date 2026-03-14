@@ -9,6 +9,10 @@ VERSION="0.1.0"
 SKILLS_ROOT="${SKILLS_ROOT:-$HOME/.skills}"
 REGISTRY_FILE="$SKILLS_ROOT/.registry.json"
 
+# Defaults (must be set before sourcing libs, which reference these)
+QUIET=false
+DRY_RUN=false
+
 # Source library modules
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB_DIR="${SCRIPT_DIR}/../lib"
@@ -52,8 +56,6 @@ EOF
 }
 
 # Parse global options
-QUIET=false
-DRY_RUN=false
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --quiet|-q) QUIET=true; shift ;;
