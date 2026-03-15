@@ -2,124 +2,106 @@
 
 Unified skill directory manager for AI coding tools.
 
-Manages a single canonical `~/.skills/` directory and federates symlinks to 30+ AI tool skill directories (Claude Code, Codex, Cursor, Copilot, Gemini, etc.), eliminating duplication and broken links.
+Auto-discovers AI tools on your system and federates a single `~/.skills/` directory to all of them via symlinks. Each tool can be configured independently: sync all skills, a selection, or none.
 
-## Problem
-
-Modern AI coding tools each maintain their own `~/.<tool>/skills/` directory. With 28+ tools installed, this creates:
-
-- **Scattered skills** across 3 separate real sources (`~/.claude/skills/`, `~/.agents/skills/`, `~/.codex/skills/`)
-- **100+ redundant symlinks** pointing in different directions
-- **Broken links** from naming inconsistencies (spaces vs hyphens, case mismatches)
-- **No single place** to add, remove, or audit skills
-
-## Solution
-
-```
-~/.skills/                         # Single source of truth
-├── user/          (44 skills)     # Your custom skills
-├── utility/       (3 skills)      # Core tools (find-skills, skill-creator, sonoscli)
-├── vendor/codex/  (28 skills)     # Vendor-curated (playwright, pdf, jupyter, etc.)
-├── all/           (75 links)      # Auto-generated flat index
-├── bin/skillctl                   # This tool
-└── .registry.json                 # Skill metadata
-
-~/.<tool>/skills/                  # Every tool gets symlinks → ~/.skills/all/*
-```
-
-## Install
+## Quick Start
 
 ```bash
 git clone <repo> ~/Documents/devs/skillctl
 cd ~/Documents/devs/skillctl
 ./install.sh
-```
 
-This symlinks `skillctl` into `~/.skills/bin/`. Add to your shell profile:
-
-```bash
+# Add to ~/.zshrc or ~/.bashrc:
 export PATH="$HOME/.skills/bin:$PATH"
 ```
 
-## Usage
-
+Then:
 ```bash
-# Health check — see counts, broken links, drift
-skillctl status
-
-# Re-sync all tool directories after changes
-skillctl sync
-
-# List all skills (with optional filter)
-skillctl list
-skillctl list data
-
-# Add a new skill
-skillctl add ./my-new-skill/
-
-# Remove a skill
-skillctl remove old-skill-name
-
-# Diagnose and fix issues
-skillctl doctor
-
-# Interactive management (TUI)
-skillctl manage
-
-# Preview changes without applying
-skillctl --dry-run sync
+skillctl scan    # Discover AI tools on your system
+skillctl sync    # Apply symlinks to all tools
+skillctl         # Interactive management TUI
 ```
 
 ## How It Works
 
-### Directory Structure
-
-Skills are organized by provenance:
-
-| Category | Path | Description |
-|----------|------|-------------|
-| `user/` | `~/.skills/user/` | Your own skills |
-| `utility/` | `~/.skills/utility/` | Core ecosystem tools |
-| `vendor/<name>/` | `~/.skills/vendor/codex/` | Vendor-curated skills |
-
-The `all/` directory is a **flat index** — auto-generated symlinks that unify all categories into one namespace. Tool directories link into `all/`, not directly into category dirs.
-
-### Symlink Federation
-
-Each tool's `skills/` directory contains relative symlinks:
-
 ```
-~/.claude/skills/playwright → ../../.skills/all/playwright
-~/.config/opencode/skills/playwright → ../../../.skills/all/playwright
+~/.skills/                         # Single source of truth
+├── user/          (44 skills)     # Your custom skills
+├── utility/       (3 skills)      # Core tools (find-skills, skill-creator, etc.)
+├── vendor/codex/  (28 skills)     # Vendor-curated (playwright, pdf, jupyter, etc.)
+├── all/           (75 links)      # Auto-generated flat index
+├── config.json                    # Discovered tools + per-tool sync config
+├── .registry.json                 # Skill metadata
+└── bin/skillctl                   # This tool
+
+~/.<tool>/skills/                  # Symlinks → ~/.skills/all/*
 ```
 
-Relative paths ensure portability. The depth adjusts automatically based on directory nesting.
+### Auto-Discovery
 
-### Priority
+`skillctl scan` examines `~/.*` and `~/.config/*` directories using a multi-signal scoring engine:
 
-When names conflict across categories: **user > utility > vendor**.
+| Signal | Score | Example |
+|--------|-------|---------|
+| Known AI tool name | +20 | claude, cursor, codex, gemini, ... |
+| Tool-specific metadata | +35-40 | `.superclaude-metadata.json`, `.codex-global-state.json` |
+| AI config files | +25 | `mcp.json`, `opencode.json` |
+| Agent subdirectories | +15 | `agents/`, `rules/`, `prompts/` |
+| AI keys in settings | +15 | `model`, `provider`, `api_key` |
+| skills/ directory | +10 | Supporting evidence only |
 
-### Protected Paths
+Threshold: score >= 25 to be recognized as an AI tool. After scanning, you can interactively remove false positives or add custom paths.
 
-These are never touched:
-- `~/.cursor/skills-cursor/` (Cursor-managed built-in skills)
-- `~/.codex/skills/.system/` (Codex internal state)
+### Per-Tool Sync Modes
 
-## Supported Tools
+| Mode | Behavior |
+|------|----------|
+| `all` | Sync every skill (default) |
+| `selective` | Only sync chosen skills |
+| `ignore` | Skip completely |
+| `external` | Tool manages its own skills (e.g., Gemini uses .agents) |
 
-Currently manages skills for **32 tool directories**:
+## Usage
 
-**Dotfile tools:** adal, agents, claude, cline, codex, commandcode, continue, copilot, cursor, factory, gemini, iflow, junie, kilocode, kiro, kode, mcpjam, moltbot, mux, neovate, pochi, qoder, qwen, roo, trae, trae-cn, vibe, zencoder
+```bash
+# Interactive TUI (default command)
+skillctl
 
-**Config tools:** agents, crush, goose, opencode
+# Discover AI tools
+skillctl scan
 
-## Adding New Tools
+# List tools and their sync modes
+skillctl tools
 
-Edit `lib/config.sh` to add a tool to `DOTFILE_TOOLS` or `CONFIG_TOOLS`, then run `skillctl sync`.
+# Configure a tool
+skillctl tools set gemini external
+skillctl tools set cursor selective
+skillctl tools select cursor data-analysis deep-researcher
+
+# Sync symlinks (respects per-tool config)
+skillctl sync
+
+# Health check
+skillctl status
+
+# List/search skills
+skillctl list
+skillctl list data
+
+# Add / remove skills
+skillctl add ./my-new-skill/
+skillctl remove old-skill-name
+
+# Fix issues
+skillctl doctor
+
+# Preview without changes
+skillctl --dry-run sync
+```
 
 ## Skill Format
 
-Each skill is a directory following the [open agent skills](https://github.com/anthropics/skills) convention:
+Each skill follows the [open agent skills](https://github.com/anthropics/skills) convention:
 
 ```
 my-skill/
@@ -133,16 +115,27 @@ my-skill/
 
 ```
 skillctl/
-├── bin/skillctl       # CLI entry point
+├── bin/skillctl           # CLI entry point
 ├── lib/
-│   ├── config.sh      # Tool registry, paths, constants
-│   ├── utils.sh       # Logging, colors, file helpers
-│   ├── registry.sh    # .registry.json management
-│   ├── sync.sh        # Core sync: rebuild all/ + tool dirs
-│   └── manage.sh      # Commands: status, list, add, remove, doctor
-├── install.sh         # Symlink installer
-└── tests/             # Shell tests
+│   ├── config.sh          # Config loading, tool data arrays
+│   ├── config_loader.py   # JSON → bash variable converter
+│   ├── config_writer.py   # Atomic JSON writer
+│   ├── discover.sh        # AI tool auto-discovery engine
+│   ├── tools.sh           # Per-tool configuration commands
+│   ├── sync.sh            # Core sync: all/ index + tool dirs
+│   ├── manage.sh          # status, list, add, remove, doctor
+│   ├── registry.sh        # .registry.json management
+│   ├── utils.sh           # Logging, colors, file helpers
+│   └── tui.sh             # Interactive TUI (fzf + bash menu)
+├── install.sh             # Symlink installer
+└── tests/                 # Shell tests
 ```
+
+## Requirements
+
+- bash 3.2+ (macOS default works)
+- python3 (for JSON handling)
+- fzf (optional, for enhanced skill browser)
 
 ## License
 

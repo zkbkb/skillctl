@@ -86,32 +86,69 @@ sync_tool_dir() {
     log_ok "$(basename "$(dirname "$skills_dir")")/skills/: $count links"
 }
 
+# ─── Sync a single tool directory (selective mode) ─────────────────────
+
+sync_tool_dir_selective() {
+    local skills_dir="$1"
+    local link_prefix="$2"
+    shift 2
+    local selected_skills=("$@")
+
+    [[ -d "$skills_dir" ]] || mkdir -p "$skills_dir"
+    remove_symlinks_in "$skills_dir"
+
+    local count=0
+    for skill_name in "${selected_skills[@]}"; do
+        [[ -z "$skill_name" ]] && continue
+        if [[ -e "$SKILLS_ROOT/all/$skill_name" ]]; then
+            make_link "$link_prefix/$skill_name" "$skills_dir/$skill_name"
+            ((count++))
+        else
+            log_warn "Skill not in all/: $skill_name (skipped)"
+        fi
+    done
+
+    log_ok "$(basename "$(dirname "$skills_dir")")/skills/: $count links (selective)"
+}
+
 # ─── Sync all tool directories ──────────────────────────────────────────
 
 sync_all_tools() {
-    log_info "Syncing dotfile tool directories..."
+    log_info "Syncing tool directories..."
 
-    for tool in "${DOTFILE_TOOLS[@]}"; do
-        local skills_dir="$HOME/.$tool/skills"
-        # Skip if the parent tool dir doesn't exist at all
-        if [[ ! -d "$HOME/.$tool" ]]; then
+    for tool in "${TOOL_NAMES[@]}"; do
+        _tool_index "$tool" || continue
+        local mode="${TOOL_SYNC_MODES[$_IDX]:-all}"
+        local skills_dir="${TOOL_SKILLS_DIRS[$_IDX]}"
+        local prefix="${TOOL_PREFIXES[$_IDX]}"
+        local tool_path="${TOOL_PATHS[$_IDX]}"
+
+        # Skip if the parent tool dir doesn't exist
+        if [[ ! -d "$tool_path" ]]; then
             continue
         fi
-        local prefix
-        prefix=$(get_link_prefix "dotfile")
-        sync_tool_dir "$skills_dir" "$prefix"
-    done
 
-    log_info "Syncing .config/ tool directories..."
-
-    for tool in "${CONFIG_TOOLS[@]}"; do
-        local skills_dir="$HOME/.config/$tool/skills"
-        if [[ ! -d "$HOME/.config/$tool" ]]; then
-            continue
-        fi
-        local prefix
-        prefix=$(get_link_prefix "config")
-        sync_tool_dir "$skills_dir" "$prefix"
+        case "$mode" in
+            all)
+                sync_tool_dir "$skills_dir" "$prefix"
+                ;;
+            selective)
+                local selected_str="${TOOL_SELECTED[$_IDX]:-}"
+                if [[ -z "$selected_str" ]]; then
+                    log_warn "$tool: selective mode but no skills selected (skipped)"
+                    continue
+                fi
+                local selected_arr=()
+                read -ra selected_arr <<< "$selected_str"
+                sync_tool_dir_selective "$skills_dir" "$prefix" "${selected_arr[@]}"
+                ;;
+            ignore)
+                [[ "$QUIET" != "true" ]] && log "${DIM}  skip${RESET}  $tool (ignore)"
+                ;;
+            external)
+                [[ "$QUIET" != "true" ]] && log "${DIM}  skip${RESET}  $tool (external)"
+                ;;
+        esac
     done
 }
 
@@ -232,6 +269,7 @@ cmd_migrate() {
 # ─── cmd_sync ───────────────────────────────────────────────────────────
 
 cmd_sync() {
+    load_config || true
     rebuild_all_index
     sync_all_tools
     registry_rebuild

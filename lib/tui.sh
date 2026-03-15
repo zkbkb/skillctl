@@ -78,11 +78,10 @@ _skill_category() {
 _count_tool_links() {
     local name="$1"
     local count=0
-    for tool in "${DOTFILE_TOOLS[@]}"; do
-        [[ -L "$HOME/.$tool/skills/$name" ]] && ((count++))
-    done
-    for tool in "${CONFIG_TOOLS[@]}"; do
-        [[ -L "$HOME/.config/$tool/skills/$name" ]] && ((count++))
+    for tool in "${TOOL_NAMES[@]}"; do
+        _tool_index "$tool" || continue
+        local skills_dir="${TOOL_SKILLS_DIRS[$_IDX]}"
+        [[ -L "$skills_dir/$name" ]] && ((count++))
     done
     echo "$count"
 }
@@ -196,11 +195,10 @@ _action_delete() {
         # Remove from all/ index
         [[ -L "$SKILLS_ROOT/all/$name" ]] && rm "$SKILLS_ROOT/all/$name"
         # Remove from tool directories
-        for tool in "${DOTFILE_TOOLS[@]}"; do
-            [[ -L "$HOME/.$tool/skills/$name" ]] && rm "$HOME/.$tool/skills/$name"
-        done
-        for tool in "${CONFIG_TOOLS[@]}"; do
-            [[ -L "$HOME/.config/$tool/skills/$name" ]] && rm "$HOME/.config/$tool/skills/$name"
+        for tool in "${TOOL_NAMES[@]}"; do
+            _tool_index "$tool" || continue
+            local td="${TOOL_SKILLS_DIRS[$_IDX]}"
+            [[ -L "$td/$name" ]] && rm "$td/$name"
         done
         echo -e "${GREEN}Deleted: $name${RESET}"
         # Rebuild registry
@@ -231,76 +229,113 @@ _action_edit() {
 
 # ─── Fallback: pure bash menu ──────────────────────────────────────────
 
-_bash_menu() {
+_main_menu() {
     while true; do
         echo ""
-        echo -e "${BOLD}skillctl manage${RESET}"
+        echo -e "${BOLD}skillctl v${VERSION:-0.2.0}${RESET}"
+        local skill_count
+        skill_count=$(count_skills_in "$SKILLS_ROOT/all")
+        local tool_count=${#TOOL_NAMES[@]}
+        echo -e "  ${DIM}$skill_count skills, $tool_count tools${RESET}"
         echo ""
-        echo "  1) Browse skills"
-        echo "  2) Search skills"
-        echo "  3) Inspect a skill"
-        echo "  4) Delete a skill"
-        echo "  5) Edit a skill"
-        echo "  6) Sync all tools"
-        echo "  7) Run doctor"
-        echo "  8) Status"
-        echo "  q) Quit"
+        echo -e "  ${BOLD}Skills${RESET}"
+        echo "    1) Browse / search skills"
+        echo "    2) Inspect a skill"
+        echo "    3) Add a skill"
+        echo "    4) Remove a skill"
         echo ""
-        echo -n "Choice: "
+        echo -e "  ${BOLD}Tools${RESET}"
+        echo "    5) List tools & sync modes"
+        echo "    6) Configure tool sync mode"
+        echo "    7) Scan for AI tools"
+        echo ""
+        echo -e "  ${BOLD}System${RESET}"
+        echo "    8) Sync (apply changes)"
+        echo "    9) Status & health check"
+        echo "    0) Doctor (fix issues)"
+        echo ""
+        echo "    q) Quit"
+        echo ""
+        echo -n "  > "
         read -r choice
 
         case "$choice" in
             1)
-                echo ""
-                echo -e "${BOLD}All skills:${RESET}"
-                _build_skill_table | column -t -s $'\t' 2>/dev/null || _build_skill_table
+                if [[ "$HAS_FZF" == "true" ]]; then
+                    _fzf_browse
+                else
+                    echo -n "  Search (empty = all): "
+                    read -r term
+                    echo ""
+                    _build_skill_table "$term"
+                fi
                 ;;
             2)
-                echo -n "Search term: "
-                read -r term
-                echo ""
-                _build_skill_table "$term"
-                ;;
-            3)
-                echo -n "Skill name: "
+                echo -n "  Skill name: "
                 read -r name
                 _action_inspect "$name"
                 ;;
+            3)
+                echo -n "  Path to skill directory: "
+                read -r spath
+                [[ -n "$spath" ]] && cmd_add "$spath"
+                ;;
             4)
-                echo -n "Skill name to delete: "
+                echo -n "  Skill name to remove: "
                 read -r name
-                _action_delete "$name"
+                [[ -n "$name" ]] && cmd_remove "$name"
                 ;;
             5)
-                echo -n "Skill name to edit: "
-                read -r name
-                _action_edit "$name"
+                cmd_tools list
                 ;;
             6)
-                cmd_sync
+                echo -n "  Tool name: "
+                read -r tname
+                [[ -z "$tname" ]] && continue
+                echo -n "  Mode (all/selective/ignore/external): "
+                read -r tmode
+                [[ -n "$tmode" ]] && cmd_tools set "$tname" "$tmode"
                 ;;
             7)
-                cmd_doctor
+                cmd_scan
                 ;;
             8)
+                cmd_sync
+                ;;
+            9)
                 cmd_status
+                ;;
+            0)
+                cmd_doctor
                 ;;
             q|Q|quit|exit)
                 break
                 ;;
             *)
-                echo "Unknown option: $choice"
+                echo "  Unknown option: $choice"
                 ;;
         esac
     done
 }
 
-# ─── Entry point ────────────────────────────────────────────────────────
+# ─── Entry points ───────────────────────────────────────────────────────
 
+# Default entry: fzf TUI if available, otherwise fall back to menu
 cmd_manage() {
     if [[ "$HAS_FZF" == "true" ]]; then
         _fzf_browse
     else
-        _bash_menu
+        _main_menu
+    fi
+}
+
+# Direct fzf skill browser (for quick access)
+cmd_browse() {
+    if [[ "$HAS_FZF" == "true" ]]; then
+        _fzf_browse
+    else
+        echo -n "  Search (empty = all): "
+        read -r term
+        _build_skill_table "$term"
     fi
 }

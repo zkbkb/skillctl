@@ -5,7 +5,7 @@ set -euo pipefail
 # Manages a canonical ~/.skills/ directory and federates symlinks
 # to all AI tool skill directories (~/.claude/skills, ~/.codex/skills, etc.)
 
-VERSION="0.1.0"
+VERSION="0.2.0"
 SKILLS_ROOT="${SKILLS_ROOT:-$HOME/.skills}"
 REGISTRY_FILE="$SKILLS_ROOT/.registry.json"
 
@@ -22,6 +22,8 @@ source "$LIB_DIR/utils.sh"
 source "$LIB_DIR/registry.sh"
 source "$LIB_DIR/sync.sh"
 source "$LIB_DIR/manage.sh"
+source "$LIB_DIR/discover.sh"
+source "$LIB_DIR/tools.sh"
 source "$LIB_DIR/tui.sh"
 
 # ─── Main CLI ───────────────────────────────────────────────────────────
@@ -34,16 +36,20 @@ Usage:
   skillctl <command> [options]
 
 Commands:
-  manage        Interactive skill browser and manager (fzf TUI)
-  init          Initialize ~/.skills/ directory structure
-  migrate       Migrate skills from scattered tool directories into ~/.skills/
-  sync          Rebuild all/ index and tool directory symlinks
-  status        Health check: counts, broken links, drift
-  list          List all skills with category and source
-  add <path>    Add a skill directory to user/ and sync
-  remove <name> Remove a skill and clean all links
-  doctor        Fix broken links, normalize names
-  version       Show version
+  manage                Interactive skill browser and manager (fzf TUI)
+  scan                  Discover AI tools on this system
+  tools                 List discovered tools and sync modes
+  tools set <t> <mode>  Set tool sync mode (all/selective/ignore/external)
+  tools select <t> ...  Set which skills a tool receives (selective mode)
+  sync                  Rebuild all/ index and tool directory symlinks
+  status                Health check: counts, broken links, drift
+  list [filter]         List all skills with category and source
+  add <path>            Add a skill directory to user/ and sync
+  remove <name>         Remove a skill and clean all links
+  doctor                Fix broken links, normalize names
+  init                  Initialize ~/.skills/ directory structure
+  migrate               Migrate skills from scattered directories into ~/.skills/
+  version               Show version
 
 Options:
   --quiet, -q   Suppress non-error output
@@ -67,11 +73,18 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Load config (silently — warnings handled inside)
+load_config 2>/dev/null || true
+
 COMMAND="${1:-}"
 shift || true
 
 case "$COMMAND" in
     manage)     cmd_manage "$@" ;;
+    menu)       _main_menu ;;
+    browse)     cmd_browse "$@" ;;
+    scan)       cmd_scan "$@" ;;
+    tools)      cmd_tools "$@" ;;
     init)       cmd_init "$@" ;;
     migrate)    cmd_migrate "$@" ;;
     sync)       cmd_sync "$@" ;;

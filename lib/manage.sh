@@ -49,65 +49,53 @@ cmd_status() {
 
     # Check each tool directory
     echo -e "${BOLD}Tool directories:${RESET}"
-    local tool_ok=0 tool_drift=0 tool_missing=0
-    for tool in "${DOTFILE_TOOLS[@]}"; do
-        local skills_dir="$HOME/.$tool/skills"
-        [[ -d "$HOME/.$tool" ]] || continue
-        if [[ ! -d "$skills_dir" ]]; then
-            echo -e "  ${YELLOW}.$tool/skills/${RESET}  missing directory"
-            ((tool_missing++))
-            continue
-        fi
-        local link_count broken
-        link_count=0
-        broken=0
-        for entry in "$skills_dir"/*; do
-            [[ -e "$entry" || -L "$entry" ]] || continue
-            local name
-            name=$(basename "$entry")
-            [[ "$name" == .* ]] && continue
-            if [[ -L "$entry" ]]; then
-                ((link_count++))
-                [[ ! -e "$entry" ]] && ((broken++))
-            fi
-        done
-        if [[ $broken -gt 0 ]]; then
-            echo -e "  ${RED}.$tool/skills/${RESET}  $link_count links, $broken broken"
-            ((tool_drift++))
-        elif [[ $link_count -ne $all_count ]]; then
-            echo -e "  ${YELLOW}.$tool/skills/${RESET}  $link_count links (expected $all_count)"
-            ((tool_drift++))
-        else
-            ((tool_ok++))
-        fi
-    done
+    local tool_ok=0 tool_drift=0 tool_skip=0
+    for tool in "${TOOL_NAMES[@]}"; do
+        _tool_index "$tool" || continue
+        local skills_dir="${TOOL_SKILLS_DIRS[$_IDX]}"
+        local tool_path="${TOOL_PATHS[$_IDX]}"
+        local mode="${TOOL_SYNC_MODES[$_IDX]:-all}"
+        local display_dir="${skills_dir/$HOME/~}"
 
-    for tool in "${CONFIG_TOOLS[@]}"; do
-        local skills_dir="$HOME/.config/$tool/skills"
-        [[ -d "$HOME/.config/$tool" ]] || continue
-        if [[ ! -d "$skills_dir" ]]; then
-            echo -e "  ${YELLOW}.config/$tool/skills/${RESET}  missing directory"
-            ((tool_missing++))
+        [[ -d "$tool_path" ]] || continue
+
+        # Mode label
+        local mode_label=""
+        case "$mode" in
+            all)        mode_label="${GREEN}[all]${RESET}" ;;
+            selective)  mode_label="${CYAN}[sel]${RESET}" ;;
+            ignore)     mode_label="${DIM}[ign]${RESET}" ;;
+            external)   mode_label="${YELLOW}[ext]${RESET}" ;;
+        esac
+
+        if [[ "$mode" == "ignore" || "$mode" == "external" ]]; then
+            ((tool_skip++))
             continue
         fi
-        local link_count broken
-        link_count=0
-        broken=0
+
+        if [[ ! -d "$skills_dir" ]]; then
+            echo -e "  $mode_label ${YELLOW}$display_dir${RESET}  missing"
+            ((tool_drift++))
+            continue
+        fi
+
+        local link_count=0 broken=0
         for entry in "$skills_dir"/*; do
             [[ -e "$entry" || -L "$entry" ]] || continue
-            local name
-            name=$(basename "$entry")
-            [[ "$name" == .* ]] && continue
+            local ename
+            ename=$(basename "$entry")
+            [[ "$ename" == .* ]] && continue
             if [[ -L "$entry" ]]; then
                 ((link_count++))
                 [[ ! -e "$entry" ]] && ((broken++))
             fi
         done
+
         if [[ $broken -gt 0 ]]; then
-            echo -e "  ${RED}.config/$tool/skills/${RESET}  $link_count links, $broken broken"
+            echo -e "  $mode_label ${RED}$tool${RESET}  $link_count links, $broken broken"
             ((tool_drift++))
-        elif [[ $link_count -ne $all_count ]]; then
-            echo -e "  ${YELLOW}.config/$tool/skills/${RESET}  $link_count links (expected $all_count)"
+        elif [[ "$mode" == "all" && $link_count -ne $all_count ]]; then
+            echo -e "  $mode_label ${YELLOW}$tool${RESET}  $link_count links (expected $all_count)"
             ((tool_drift++))
         else
             ((tool_ok++))
@@ -115,7 +103,7 @@ cmd_status() {
     done
 
     echo ""
-    echo -e "  ${GREEN}$tool_ok synced${RESET}, ${YELLOW}$tool_drift drifted${RESET}, ${DIM}$tool_missing missing${RESET}"
+    echo -e "  ${GREEN}$tool_ok synced${RESET}, ${YELLOW}$tool_drift drifted${RESET}, ${DIM}$tool_skip skipped${RESET}"
 
     # Registry info
     echo ""
@@ -165,16 +153,29 @@ cmd_list() {
         return
     fi
 
-    python3 -c "
-import json, sys
-
+    if command -v jq &>/dev/null; then
+        printf "%-40s %-16s %8s\n" "Name" "Category" "SKILL.md"
+        printf "%s\n" "$(printf '─%.0s' {1..66})"
+        local filt_lower
+        filt_lower=$(echo "$filter" | tr '[:upper:]' '[:lower:]')
+        jq -r --arg f "$filt_lower" '.skills | to_entries | sort_by(.key)[] |
+            select(if $f != "" then (.key | ascii_downcase | contains($f)) or (.value.category | ascii_downcase | contains($f)) else true end) |
+            "\(.key)\t\(.value.category)\t\(if .value.has_skill_md then "yes" else "no" end)"
+        ' "$REGISTRY_FILE" 2>/dev/null | while IFS=$'\t' read -r name cat has_md; do
+            printf "%-40s %-16s %8s\n" "$name" "$cat" "$has_md"
+        done
+        local total
+        total=$(jq '.skills | length' "$REGISTRY_FILE" 2>/dev/null)
+        echo ""
+        echo "Total: $total skills"
+    else
+        python3 -c "
+import json
 with open('$REGISTRY_FILE') as f:
     data = json.load(f)
-
 skills = data.get('skills', {})
 filt = '$filter'.lower()
-
-print(f'{'Name':<40} {'Category':<16} {'SKILL.md':>8}')
+print(f\"{'Name':<40} {'Category':<16} {'SKILL.md':>8}\")
 print('-' * 66)
 for name in sorted(skills):
     info = skills[name]
@@ -185,6 +186,7 @@ for name in sorted(skills):
     print(f'{name:<40} {cat:<16} {has_md:>8}')
 print(f'\nTotal: {len(skills)} skills')
 "
+    fi
 }
 
 # ─── cmd_add ────────────────────────────────────────────────────────────
@@ -293,29 +295,16 @@ cmd_doctor() {
     fi
 
     # 2. Check for broken links in tool directories
-    for tool in "${DOTFILE_TOOLS[@]}"; do
-        local skills_dir="$HOME/.$tool/skills"
+    for tool in "${TOOL_NAMES[@]}"; do
+        _tool_index "$tool" || continue
+        local mode="${TOOL_SYNC_MODES[$_IDX]:-all}"
+        [[ "$mode" == "ignore" || "$mode" == "external" ]] && continue
+        local skills_dir="${TOOL_SKILLS_DIRS[$_IDX]}"
         [[ -d "$skills_dir" ]] || continue
         local broken
         broken=$(count_broken_links "$skills_dir")
         if [[ $broken -gt 0 ]]; then
-            log_warn ".$tool/skills/: $broken broken links"
-            list_broken_links "$skills_dir" | while read -r link; do
-                if [[ "$DRY_RUN" != "true" ]]; then
-                    rm "$link"
-                fi
-            done
-            ((issues += broken))
-        fi
-    done
-
-    for tool in "${CONFIG_TOOLS[@]}"; do
-        local skills_dir="$HOME/.config/$tool/skills"
-        [[ -d "$skills_dir" ]] || continue
-        local broken
-        broken=$(count_broken_links "$skills_dir")
-        if [[ $broken -gt 0 ]]; then
-            log_warn ".config/$tool/skills/: $broken broken links"
+            log_warn "$tool/skills/: $broken broken links"
             list_broken_links "$skills_dir" | while read -r link; do
                 if [[ "$DRY_RUN" != "true" ]]; then
                     rm "$link"
